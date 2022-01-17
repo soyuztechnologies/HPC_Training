@@ -11,7 +11,7 @@ sap.ui.define([
             //alert("Controller object is now created");
         },
         onClick: function(){
-            alert("Welcome " + this.getView().byId("myField").getValue());
+            alert("Welcome to the worlld of ui5 " + this.getView().byId("myField").getValue());
         }
     });
 });
