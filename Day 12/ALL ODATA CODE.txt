@@ -1,0 +1,222 @@
+class ZCL_ZHPC_XX_ODATA_DPC_EXT definition
+  public
+  inheriting from ZCL_ZHPC_XX_ODATA_DPC
+  create public .
+
+public section.
+protected section.
+
+  methods PRODUCTSET_GET_ENTITY
+    redefinition .
+  methods PRODUCTSET_GET_ENTITYSET
+    redefinition .
+  methods PRODUCTSET_CREATE_ENTITY
+    redefinition .
+private section.
+ENDCLASS.
+
+
+
+CLASS ZCL_ZHPC_XX_ODATA_DPC_EXT IMPLEMENTATION.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Protected Method ZCL_ZHPC_XX_ODATA_DPC_EXT->PRODUCTSET_CREATE_ENTITY
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_ENTITY_NAME                 TYPE        STRING
+* | [--->] IV_ENTITY_SET_NAME             TYPE        STRING
+* | [--->] IV_SOURCE_NAME                 TYPE        STRING
+* | [--->] IT_KEY_TAB                     TYPE        /IWBEP/T_MGW_NAME_VALUE_PAIR
+* | [--->] IO_TECH_REQUEST_CONTEXT        TYPE REF TO /IWBEP/IF_MGW_REQ_ENTITY_C(optional)
+* | [--->] IT_NAVIGATION_PATH             TYPE        /IWBEP/T_MGW_NAVIGATION_PATH
+* | [--->] IO_DATA_PROVIDER               TYPE REF TO /IWBEP/IF_MGW_ENTRY_PROVIDER(optional)
+* | [<---] ER_ENTITY                      TYPE        ZCL_ZHPC_XX_ODATA_MPC=>TS_PRODUCT
+* | [!CX!] /IWBEP/CX_MGW_BUSI_EXCEPTION
+* | [!CX!] /IWBEP/CX_MGW_TECH_EXCEPTION
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  method PRODUCTSET_CREATE_ENTITY.
+*{
+*    "PRODUCT_ID" : "HP-9999",
+*    "TYPE_CODE" : "PR",
+*    "CATEGORY" : "Notebooks",
+*    "NAME" : "HPC Material",
+*    "DESCRIPTION" : "HPC Plant Material 1",
+*    "SUPPLIER_ID" : "0100000051",
+*    "SUPPLIER_NAME" : "TECUM",
+*    "PRICE" : "580.00",
+*    "CURRENCY_CODE" : "INR"
+*}
+    data: ls_entity type zcl_zhpc_xx_odata_mpc=>ts_product,
+          ls_header type bapi_epm_product_header,
+          lt_return type TABLE OF bapiret2.
+
+    "Step 1: The incoming data to be set in a structure - Extract from Request
+    io_data_provider->read_entry_data(
+      IMPORTING
+        es_data = ls_entity
+    ).
+
+    "Step 2: Use this data to insert into DB via BAPI
+    MOVE-CORRESPONDING ls_entity to ls_header.
+    ls_header-tax_tarif_code = 1.
+    ls_header-dim_unit = 'CM'.
+    ls_header-measure_unit = 'EA'.
+
+    call FUNCTION 'BAPI_EPM_PRODUCT_CREATE'
+      EXPORTING
+        headerdata         = ls_header                 " EPM: Product header data of BOR object SEPM002
+*        persist_to_db      = abap_true        " Flag: Save data to DB (yes/no)
+      TABLES
+*        conversion_factors =                  " EPM: Product conversion factor data of BOR object SEPM002
+        return             = lt_return                 " Return Parameter
+      .
+
+    "Step 3: Error Handling
+    IF lt_return is NOT INITIAL.
+
+      me->mo_context->get_message_container( )->add_messages_from_bapi(
+        EXPORTING
+          it_bapi_messages          = lt_return
+      ).
+
+      RAISE EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+          message_container      = me->mo_context->get_message_container( )
+      .
+    ENDIF.
+    "Step 4: Send Response
+    ER_ENTITY = ls_entity.
+
+
+  endmethod.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Protected Method ZCL_ZHPC_XX_ODATA_DPC_EXT->PRODUCTSET_GET_ENTITY
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_ENTITY_NAME                 TYPE        STRING
+* | [--->] IV_ENTITY_SET_NAME             TYPE        STRING
+* | [--->] IV_SOURCE_NAME                 TYPE        STRING
+* | [--->] IT_KEY_TAB                     TYPE        /IWBEP/T_MGW_NAME_VALUE_PAIR
+* | [--->] IO_REQUEST_OBJECT              TYPE REF TO /IWBEP/IF_MGW_REQ_ENTITY(optional)
+* | [--->] IO_TECH_REQUEST_CONTEXT        TYPE REF TO /IWBEP/IF_MGW_REQ_ENTITY(optional)
+* | [--->] IT_NAVIGATION_PATH             TYPE        /IWBEP/T_MGW_NAVIGATION_PATH
+* | [<---] ER_ENTITY                      TYPE        ZCL_ZHPC_XX_ODATA_MPC=>TS_PRODUCT
+* | [<---] ES_RESPONSE_CONTEXT            TYPE        /IWBEP/IF_MGW_APPL_SRV_RUNTIME=>TY_S_MGW_RESPONSE_ENTITY_CNTXT
+* | [!CX!] /IWBEP/CX_MGW_BUSI_EXCEPTION
+* | [!CX!] /IWBEP/CX_MGW_TECH_EXCEPTION
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  method PRODUCTSET_GET_ENTITY.
+
+  data : lv_prod_id type bapi_epm_product_id,
+         ls_header  TYPE bapi_epm_product_header,
+         lt_return  type table of bapiret2.
+
+  READ TABLE IT_KEY_TAB INTO data(ls_key) INDEX 1.
+  lv_prod_id = ls_key-value.
+
+  IF lv_prod_id = ''.
+    RAISE EXCEPTION type /iwbep/cx_mgw_busi_exception
+      EXPORTING
+        message_unlimited      = 'A Blank Product Id was not acceptable!'
+    .
+  ENDIF.
+
+  CALL FUNCTION 'BAPI_EPM_PRODUCT_GET_DETAIL'
+    EXPORTING
+      product_id               = lv_prod_id
+   IMPORTING
+     HEADERDATA               = ls_header
+   TABLES
+*     CONVERSION_FACTORS       =
+      RETURN                   = lt_return
+            .
+
+    IF lt_return is NOT INITIAL.
+      ""Something went wrong in BAPI
+
+      me->mo_context->get_message_container( )->add_messages_from_bapi(
+        EXPORTING
+          it_bapi_messages          =  lt_return
+      ).
+
+      raise EXCEPTION TYPE /iwbep/cx_mgw_busi_exception
+        EXPORTING
+           message_container      = me->mo_context->get_message_container( )
+      .
+    ENDIF.
+
+    MOVE-CORRESPONDING ls_header to ER_ENTITY.
+
+  endmethod.
+
+
+* <SIGNATURE>---------------------------------------------------------------------------------------+
+* | Instance Protected Method ZCL_ZHPC_XX_ODATA_DPC_EXT->PRODUCTSET_GET_ENTITYSET
+* +-------------------------------------------------------------------------------------------------+
+* | [--->] IV_ENTITY_NAME                 TYPE        STRING
+* | [--->] IV_ENTITY_SET_NAME             TYPE        STRING
+* | [--->] IV_SOURCE_NAME                 TYPE        STRING
+* | [--->] IT_FILTER_SELECT_OPTIONS       TYPE        /IWBEP/T_MGW_SELECT_OPTION
+* | [--->] IS_PAGING                      TYPE        /IWBEP/S_MGW_PAGING
+* | [--->] IT_KEY_TAB                     TYPE        /IWBEP/T_MGW_NAME_VALUE_PAIR
+* | [--->] IT_NAVIGATION_PATH             TYPE        /IWBEP/T_MGW_NAVIGATION_PATH
+* | [--->] IT_ORDER                       TYPE        /IWBEP/T_MGW_SORTING_ORDER
+* | [--->] IV_FILTER_STRING               TYPE        STRING
+* | [--->] IV_SEARCH_STRING               TYPE        STRING
+* | [--->] IO_TECH_REQUEST_CONTEXT        TYPE REF TO /IWBEP/IF_MGW_REQ_ENTITYSET(optional)
+* | [<---] ET_ENTITYSET                   TYPE        ZCL_ZHPC_XX_ODATA_MPC=>TT_PRODUCT
+* | [<---] ES_RESPONSE_CONTEXT            TYPE        /IWBEP/IF_MGW_APPL_SRV_RUNTIME=>TY_S_MGW_RESPONSE_CONTEXT
+* | [!CX!] /IWBEP/CX_MGW_BUSI_EXCEPTION
+* | [!CX!] /IWBEP/CX_MGW_TECH_EXCEPTION
+* +--------------------------------------------------------------------------------------</SIGNATURE>
+  method PRODUCTSET_GET_ENTITYSET.
+
+*    append INITIAL LINE TO ET_ENTITYSET.
+    data: lt_header type table of bapi_epm_product_header,
+          ls_row    type          bapi_epm_max_rows,
+          lv_top    type          i,
+          lv_skip   type          i,
+          ls_entity type          zcl_zhpc_xx_odata_mpc=>ts_product,
+          lt_cat_filter type TABLE OF BAPI_EPM_PRODUCT_CATEG_RANGE,
+          ls_cat_filter type BAPI_EPM_PRODUCT_CATEG_RANGE.
+
+    read TABLE it_filter_select_options INTO data(ls_filter) with KEY property = 'CATEGORY'.
+
+    IF sy-subrc = 0.
+      LOOP AT ls_filter-select_options into data(ls_category).
+        MOVE-CORRESPONDING ls_category to ls_cat_filter.
+        append ls_cat_filter to lt_cat_filter.
+      ENDLOOP.
+    ENDIF.
+
+
+    lv_top = IS_PAGING-top.
+    lv_skip = IS_PAGING-skip.
+
+    ls_row-bapimaxrow = lv_top + lv_skip.
+
+    CALL FUNCTION 'BAPI_EPM_PRODUCT_GET_LIST'
+     EXPORTING
+       MAX_ROWS                    = ls_row
+     TABLES
+       HEADERDATA                  = lt_header
+       SELPARAMCATEGORIES          = lt_cat_filter
+              .
+
+
+    IF ls_row-bapimaxrow > 0.
+      LOOP AT lt_header INTO data(ls_header) FROM lv_skip + 1 to ls_row-bapimaxrow.
+            MOVE-CORRESPONDING ls_header to ls_entity.
+            append ls_entity to ET_ENTITYSET.
+      ENDLOOP.
+    else.
+      MOVE-CORRESPONDING lt_header to ET_ENTITYSET.
+    ENDIF.
+
+
+*
+
+
+  endmethod.
+ENDCLASS.
