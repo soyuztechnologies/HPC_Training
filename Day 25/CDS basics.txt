@@ -1,0 +1,175 @@
+@EndUserText.label : 'Demo table'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+define table zhpc_XX_tab {
+  key client : abap.clnt not null;
+  key empno  : zdte_empno not null;
+  empname    : abap.char(256);
+  @Semantics.amount.currencyCode : 'zhpc_demo_tab.currency'
+  salary     : abap.curr(10,2);
+  currency   : abap.cuky;
+  costcenter : kostl;
+
+}
+
+
+----------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZHPCXXBASIC'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Basic CDS view'
+define view ZHPC_XX_BASIC as select from snwd_bpa {
+    key node_key as NodeKey,
+    bp_role as BpRole,
+    email_address as EmailAddress,
+    bp_id as BpId,
+    company_name as CompanyName
+}
+
+
+--------------------------------------------------------------------------
+
+@AbapCatalog.sqlViewName: 'ZHPCXXBASICP'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Parameterized CDS'
+define view ZHPC_XX_BASICP 
+with parameters p_type: abap.char( 2 )
+as select from snwd_bpa {
+    key node_key as NodeKey,
+    bp_role as BpRole,
+    email_address as EmailAddress,
+    bp_id as BpId,
+    company_name as CompanyName
+} where bp_role = $parameters.p_type
+
+
+
+--------------------------------------------------------------------
+
+*&---------------------------------------------------------------------*
+*& Report zhpc_xx_call_cds
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhpc_xx_call_cds.
+
+
+data : itab type table of ZHPC_XX_BASIC,
+       wa   like line of itab.
+
+SELECT-OPTIONS : s_comp for wa-CompanyName.
+
+select * from ZHPC_XX_BASIC into table @itab
+where CompanyName in @s_comp.
+
+cl_demo_output=>display_data(
+  EXPORTING
+    value   = itab
+*    name    =
+*    exclude =
+*    include =
+).
+
+
+-------------------------------------------------------------------------------------------
+
+@AbapCatalog.sqlViewName: 'ZHPCXXBASIC'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Basic CDS view'
+define view ZHPC_XX_BASIC as select from snwd_bpa {
+    key node_key as NodeKey,
+    case bp_role
+        when '01' then 'Customer'
+        when '02' then 'Supplier'
+        else 'Unknown' end as BpRole,
+    email_address as EmailAddress,
+    bp_id as BpId,
+    company_name as CompanyName
+}
+
+
+-----------------------------------------------------------------------------
+
+@AbapCatalog.sqlViewName: 'ZHPCXXBPADR'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'bussiness partner and address (Customer)'
+define view ZHPC_XX_BPADR as select from snwd_bpa as bpa 
+inner join snwd_ad as addr on
+bpa.address_guid = addr.node_key
+{
+    key addr.node_key as AddressKey,
+    key bpa.node_key as PartnerKey,
+    addr.city as City,
+    addr.country as Country,
+    addr.address_type as AddressType,
+    bpa.bp_role as BpRole,
+    bpa.web_address as WebsiteAddress,
+    bpa.address_guid as AddressGuid,
+    bpa.bp_id as BpId,
+    bpa.company_name as CompanyName
+} where bpa.bp_role = '01'
+
+
+
+--------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZHPCXXSALESOR'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'sales order view'
+define view ZHPC_XX_SALESOR as select from snwd_so {
+    key node_key as NodeKey,
+    so_id as SoId,
+    buyer_guid as BuyerGuid,
+    currency_code as CurrencyCode,
+    gross_amount as GrossAmount,
+    lifecycle_status as LifecycleStatus
+}
+
+--------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZHPCXXCOSAL'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Company Sales'
+define view ZHPC_XX_COSAL as select from ZHPC_XX_BPADR as cust 
+inner join ZHPC_XX_SALESOR as ord
+on cust.PartnerKey = ord.BuyerGuid
+{
+ key cust.AddressKey,
+ key cust.PartnerKey,
+ key ord.NodeKey,
+ cust.City,
+ cust.Country,
+ cust.AddressType,
+ cust.BpRole,
+ cust.WebsiteAddress,
+ cust.AddressGuid,
+ cust.BpId,
+ cust.CompanyName,
+ ord.SoId,
+ ord.BuyerGuid,
+ ord.CurrencyCode,
+ ord.GrossAmount,
+ ord.LifecycleStatus   
+}
+
+--------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZHPCXXAGGSLS'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Aggregated sales per company'
+define view ZHPC_XX_AGGSLS as select from ZHPC_XX_COSAL {
+    key CompanyName,
+    sum(GrossAmount) as TotalSales
+} group by CompanyName
