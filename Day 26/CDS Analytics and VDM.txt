@@ -1,0 +1,157 @@
+@AbapCatalog.sqlViewName: 'ZHPCXXCOSLSASSO'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Association concept'
+@OData.publish: true
+define view ZHPC_XX_COSLS_ASSO as select from ZHPC_XX_BPADR as cust 
+association[1..*] to ZHPC_XX_SALESOR as _Orders
+on $projection.PartnerKey = _Orders.BuyerGuid
+{
+    key cust.PartnerKey,
+    cust.City,
+    cust.Country,
+    cust.AddressType,
+    cust.BpRole,
+    cust.WebsiteAddress,
+    cust.AddressGuid,
+    cust.BpId,
+    cust.CompanyName,
+    //association name - Exposed Association- lose coupling
+    _Orders
+}
+
+--------------------------------------------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZIHPCXXPTEXT'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'text view interface view product texts'
+@VDM.viewType: #BASIC
+@ObjectModel.dataCategory: #TEXT
+define view ZI_HPC_XX_PTEXT as select from snwd_texts {
+    key node_key as NodeKey,
+    parent_key as ParentKey,
+    language as Language,
+    text as Text
+}
+
+--------------------------------------------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZIHPCXXPRD'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Product view, interface, basic'
+@VDM.viewType: #BASIC
+@Analytics.dataCategory: #DIMENSION
+define view ZI_HPC_XX_PRD as select from snwd_pd as prod 
+association[1..*] to ZI_HPC_XX_PTEXT as _Texts on
+$projection.DescGuid = _Texts.ParentKey
+{
+ key prod.node_key as NodeKey,
+ prod.product_id as ProductId,
+ prod.type_code as TypeCode,
+ prod.category as Category,
+ prod.desc_guid as DescGuid,
+ _Texts
+}
+
+
+--------------------------------------------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZIHPCXXBUPA'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Business Partner, Address, Basic, Interface'
+@VDM.viewType: #BASIC
+@Analytics.dataCategory: #DIMENSION
+define view ZI_HPC_XX_BUPA as select from snwd_bpa as bpa
+association[1] to snwd_ad as _Address on
+$projection.AddressGuid = _Address.node_key
+ {
+key bpa.node_key as NodeKey,
+bpa.bp_role as BpRole,
+bpa.address_guid as AddressGuid,
+bpa.bp_id as BpId,
+bpa.company_name as CompanyName,
+_Address
+
+}
+
+
+--------------------------------------------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZIHPCXXSO'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Sales orders, Basic, Interface, Facts'
+@VDM.viewType: #BASIC
+@Analytics.dataCategory: #FACT
+define view ZI_HPC_XX_SO as select from snwd_so as sls 
+association[1..*] to snwd_so_i as _Items on
+$projection.NodeKey = _Items.parent_key
+{
+ key sls.node_key as NodeKey,
+ sls.so_id as SoId,
+ sls.buyer_guid as BuyerGuid,
+ _Items.product_guid as ProductKey,
+ _Items.parent_key as ParentKey,
+ _Items.gross_amount as GrossAmount,
+ _Items.currency_code as CurrencyCode
+}
+
+
+--------------------------------------------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZIHPCXXCOSLS'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Cube, Composite View, Transaction and Master data'
+@VDM.viewType: #COMPOSITE
+@Analytics.dataCategory: #CUBE
+define view ZI_HPC_XX_CO_SLS 
+with parameters p_lang  : abap.lang
+as select from ZI_HPC_XX_SO as sales 
+association[1] to ZI_HPC_XX_PRD as _Products
+on $projection.ProductKey = _Products.NodeKey
+association[1] to ZI_HPC_XX_BUPA as _BusinessPartner
+on $projection.BuyerGuid = _BusinessPartner.NodeKey
+{
+ key sales.NodeKey,
+ sales.SoId,
+ sales.BuyerGuid,
+ sales.ProductKey,
+ sales.ParentKey,
+ @DefaultAggregation: #SUM
+ sales.GrossAmount,
+ sales.CurrencyCode,
+ _Products,
+ _Products._Texts[1:Language=$parameters.p_lang].Text,
+ _BusinessPartner.CompanyName as Customer,
+ _BusinessPartner._Address.city as City,
+ _BusinessPartner._Address.country as Country
+}
+
+
+--------------------------------------------------------------------------------------------------------------------------
+@AbapCatalog.sqlViewName: 'ZIHPCXXCSLS'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'ZI_HPC_XX_C_SLS'
+
+@VDM.viewType: #CONSUMPTION
+@Analytics.query: true
+define view ZI_HPC_XX_C_SLS 
+with parameters p_lang: abap.lang
+as select from ZI_HPC_XX_CO_SLS(p_lang: $parameters.p_lang) {
+    @AnalyticsDetails.query.axis: #ROWS
+    key Customer,
+    key Text,
+    @Consumption.filter.selectionType: #RANGE
+    key Country,
+    @AnalyticsDetails.query.axis: #ROWS
+    key CurrencyCode,
+    GrossAmount    
+}
+--------------------------------------------------------------------------------------------------------------------------

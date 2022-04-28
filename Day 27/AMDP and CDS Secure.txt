@@ -1,0 +1,196 @@
+@AbapCatalog.sqlViewName: 'ZIHPCXXBASEC'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Secure CDS'
+define view ZI_HPC_XX_BUPA_SEC as select from snwd_bpa as bpa
+association[1] to snwd_ad as _Address on
+$projection.AddressGuid = _Address.node_key
+ {
+    key bpa.node_key as NodeKey,
+    bpa.bp_role as BpRole,
+    bpa.address_guid as AddressGuid,
+    bpa.bp_id as BpId,
+    bpa.company_name as CompanyName,
+    _Address.country as Country
+}
+
+
+
+@EndUserText.label: 'DCL for the CDS view -'
+@MappingRole: true
+define role ZI_HPC_XX_BUPA_SEC_DCL {
+    grant 
+        select
+            on
+                ZI_HPC_XX_BUPA_SEC
+                    where
+                        (Country) = aspect pfcg_auth(ZHPC_CTRY, 'ZH_COUNTRY',  actvt = '03');
+                        
+}
+
+
+========================================================================================
+
+CLASS zhpc_xx_amdp DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    INTERFACES if_amdp_marker_hdb .
+    CLASS-METHODS add_number importing value(a) type i value(b) type i
+                             exporting value(res) type i.
+    CLASS-METHODS calc_tot_sales
+                             exporting value(outab) type ZTTHPC_RESULT .
+    CLASS-METHODS calc_rank_sales
+                             for table function ZHPC_XX_TF.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS zhpc_xx_amdp IMPLEMENTATION.
+  METHOD add_number by database procedure for hdb language sqlscript.
+    res = a + b;
+  ENDMETHOD.
+
+  METHOD calc_tot_sales by database procedure for hdb language sqlscript
+  USING snwd_bpa snwd_so.
+
+    declare lv_count, i integer;
+    declare LV_CUST_TYPE string;
+
+    --local internal table in hana sql script
+    lt_table = select bpa.bp_id, bpa.company_name, sum( so.gross_amount ) as TOTAL_SALES,
+    so.currency_code,
+    rank(  ) over( order by sum( so.gross_amount ) DESC ) AS "RANK",
+    DENSE_RANK( ) over( order by sum( so.gross_amount ) DESC ) AS "DRANK"
+     from snwd_bpa as bpa inner join snwd_so as so
+    on bpa.node_key = so.buyer_guid group by bpa.bp_id, bpa.company_name,so.currency_code
+    LIMIT 5;
+
+    lv_count := record_count( :lt_table );
+
+    for i in 1..:lv_count do
+
+        if :lt_table.total_sales[i] > 4100000 then
+            LV_CUST_TYPE := 'Good';
+        else
+            LV_CUST_TYPE := 'Average';
+        end if;
+
+        :outab.insert(( :lt_table.bp_id[i],
+                        :lt_table.company_name[i],
+                        :lt_table.total_sales[i],
+                        :lt_table.currency_code[i],
+                        :lt_table.rank[i],
+                        :lt_table.drank[i],
+                        :i,
+                        :LV_CUST_TYPE ), i);
+
+    end for;
+
+
+  ENDMETHOD.
+
+  METHOD calc_rank_sales by database function for hdb language sqlscript
+   USING snwd_bpa snwd_so.
+
+    declare lv_count, i integer;
+    declare LV_CUST_TYPE string;
+
+    --local internal table in hana sql script
+    lt_table = select bpa.client as client, bpa.bp_id, bpa.company_name, sum( so.gross_amount ) as TOTAL_SALES,
+    so.currency_code,
+    rank(  ) over( order by sum( so.gross_amount ) DESC ) AS "RANK",
+    DENSE_RANK( ) over( order by sum( so.gross_amount ) DESC ) AS "DRANK"
+     from snwd_bpa as bpa inner join snwd_so as so
+    on bpa.node_key = so.buyer_guid group by bpa.client, bpa.bp_id, bpa.company_name,so.currency_code
+    LIMIT 5;
+
+    return select client, bp_id, company_name, total_sales,
+    currency_code, rank, drank,
+    row_number ( ) over( order by total_sales desc ) as OWN_RANK,
+    case when
+     total_sales > 4100000 then 'Good'
+     else 'Average' end as cust_type
+    from :lt_table;
+
+
+  ENDMETHOD.
+
+ENDCLASS.
+
+========================================================================================
+*&---------------------------------------------------------------------*
+*& Report zhpc_xx_call_amdp
+*&---------------------------------------------------------------------*
+*&
+*&---------------------------------------------------------------------*
+REPORT zhpc_xx_call_amdp.
+
+zhpc_xx_amdp=>calc_tot_sales(
+  IMPORTING
+    outab = data(itab)
+).
+
+cl_demo_output=>display_data(
+  EXPORTING
+    value   = itab
+*    name    =
+*    exclude =
+*    include =
+).
+
+
+
+*zhpc_xx_amdp=>add_number(
+*  EXPORTING
+*    a   = 10
+*    b   = 20
+*  IMPORTING
+*    res = data(lv_re)
+*).
+*
+*write : / lv_re.
+
+
+========================================================================================
+@EndUserText.label: 'Table function NW7.5'
+define table function ZHPC_XX_TF
+
+returns {
+    client : abap.clnt;
+    BP_ID :   snwd_partner_id;
+    COMPANY_NAME    :   snwd_company_name;
+    TOTAL_SALES :   snwd_ttl_gross_amount;
+    CURRENCY_CODE   :   snwd_curr_code;
+    RANK    : abap.int4;
+    DRANK   : abap.int4;
+    OWN_RANK    : abap.int4;
+    CUST_TYPE   : abap.char( 32 );
+}
+implemented by method zhpc_xx_amdp=>calc_rank_sales;
+
+@AbapCatalog.sqlViewName: 'ZHPCXXADVANCE'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'advance table function join'
+define view ZHPC_XX_ADVANCE as select from ZI_HPC_XX_BUPA as bpa 
+association[1] to ZHPC_XX_TF as _tf on
+bpa.BpId = _tf.BP_ID
+{
+    key bpa.NodeKey,
+    bpa.BpRole,
+    bpa.AddressGuid,
+    bpa.BpId,
+    bpa.CompanyName,
+    /* Associations */
+    bpa._Address.country,
+    _tf
+}
