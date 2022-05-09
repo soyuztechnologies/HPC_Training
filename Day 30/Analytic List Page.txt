@@ -1,0 +1,149 @@
+@EndUserText.label : 'Election Details'
+@AbapCatalog.enhancement.category : #NOT_CLASSIFIED
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #ALLOWED
+define table zas_election {
+  key s_no          : zdte_sno not null;
+  election_type     : zdte_electyp;
+  state_name        : zdte_state;
+  constituency_name : zdte_const;
+  assembly_no       : zdte_assem;
+  positions         : zdte_post;
+  candidate         : zdte_candt;
+  party             : zdte_party;
+  votes             : zdte_votes;
+
+}
+
+
+@AbapCatalog.sqlViewName: 'ZHPCXXELECTIONS'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Elections data'
+@VDM.viewType: #CONSUMPTION
+@OData.publish: true
+@Metadata.allowExtensions: true
+define view ZHPC_XX_ELECTIONS as select from zas_election 
+association to zhpc_xx_total_votes as _TotalCount
+on $projection.ConstituencyName = _TotalCount.ConstituencyName
+{
+ key s_no as SNo,
+ election_type as ElectionType,
+ state_name as StateName,
+ constituency_name as ConstituencyName,
+ assembly_no as AssemblyNo,
+ positions as Positions,
+ candidate as Candidate,
+ party as Party,
+ @DefaultAggregation: #SUM
+ votes as Votes,
+ cast(votes as abap.fltp) / cast(_TotalCount.TotalVotes as abap.fltp) as Percentagecap
+    
+}
+
+
+
+
+@Metadata.layer: #CUSTOMER
+@UI.chart: [{ 
+    chartType: #COLUMN,
+    dimensions: ['Party'],
+    dimensionAttributes: [{dimension: 'Party', role: #CATEGORY }],
+    measures: ['Votes'],
+    measureAttributes: [{measure: 'Votes', asDataPoint: true, role: #AXIS_1 }]
+
+}]
+annotate view ZHPC_XX_ELECTIONS
+    with 
+{
+    @UI.selectionField: [{position: 1 }]
+    @UI.lineItem: [{position: 1 }]
+    StateName;
+    @UI.selectionField: [{position: 4 }]
+    @UI.lineItem: [{position: 2 }]
+    ConstituencyName;
+    @UI.selectionField: [{position: 3 }]
+    @UI.lineItem: [{position: 3 }]
+    Candidate;
+    @UI.selectionField: [{position: 2 }]
+    @UI.lineItem: [{position: 4 }]
+    Party;
+    @UI.lineItem: [{position: 5 }]
+    Votes;
+    
+}
+
+
+@AbapCatalog.sqlViewName: 'ZHPCXXPERCENT'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'percent calc'
+define view zhpc_xx_percent as select from zas_election {
+    key s_no as SNo,
+    election_type as ElectionType,
+    state_name as StateName,
+    constituency_name as ConstituencyName,
+    case when constituency_name = 'AE                  Goa' then cast(1 as abap.int4) else 0 end as GoaVotes,
+    case when constituency_name = 'AE                  Uttar_Pradesh' then cast(1 as abap.int4) else 0 end as UPVotes,
+    case when constituency_name = 'AE                  Punjab' then cast(1 as abap.int4) else 0 end as PBVotes,
+    case when constituency_name = 'AE                  Uttarakhand' then cast(1 as abap.int4) else 0 end as UKVotes,
+    assembly_no as AssemblyNo,
+    positions as Positions,
+    candidate as Candidate,
+    party as Party,
+    votes as Votes
+}
+
+
+
+@AbapCatalog.sqlViewName: 'ZHPCXXTOTALVOTES'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'total votes per constitency'
+define view zhpc_xx_total_votes as select from zhpc_xx_percent {
+    key ConstituencyName,
+    @DefaultAggregation: #SUM
+    sum( case ConstituencyName 
+            when 'AE                  Goa' then GoaVotes
+            when 'AE                  Uttar_Pradesh' then UPVotes
+            when 'AE                  Punjab' then PBVotes
+            when 'AE                  Uttarakhand' then UKVotes
+    end ) as TotalVotes 
+    
+} group by ConstituencyName
+
+
+
+@AbapCatalog.sqlViewName: 'ZHPCXXCOSAL'
+@AbapCatalog.compiler.compareFilter: true
+@AbapCatalog.preserveKey: true
+@AccessControl.authorizationCheck: #CHECK
+@EndUserText.label: 'Company Sales'
+define view ZHPC_XX_COSAL as select from ZHPC_XX_BPADR as cust 
+inner join ZHPC_XX_SALESOR as ord
+on cust.PartnerKey = ord.BuyerGuid
+{
+ key cust.AddressKey,
+ key cust.PartnerKey,
+ key ord.NodeKey,
+ cust.City,
+ cust.Country,
+ cust.AddressType,
+ cust.BpRole,
+ cust.WebsiteAddress,
+ cust.AddressGuid,
+ cust.BpId,
+ cust.CompanyName,
+ ord.SoId,
+ ord.BuyerGuid,
+ ord.CurrencyCode,
+ ord.GrossAmount,
+ ord.LifecycleStatus   
+}
+
+
+
